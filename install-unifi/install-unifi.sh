@@ -8,7 +8,9 @@ UNIFI_SOFTWARE_URL="https://dl.ui.com/unifi/7.0.25/UniFi.unix.zip"
 
 
 # The rc script associated with this branch or fork:
-RC_SCRIPT_URL="https://raw.githubusercontent.com/gozoinks/unifi-pfsense/master/rc.d/unifi.sh"
+RC_SCRIPT_URL="https://raw.githubusercontent.com/unofficial-unifi/unifi-pfsense/master/rc.d/unifi.sh"
+
+CURRENT_MONGODB_VERSION=mongodb42
 
 # If pkg-ng is not yet installed, bootstrap it:
 if ! /usr/sbin/pkg -N 2> /dev/null; then
@@ -27,10 +29,10 @@ fi
 ABI=`/usr/sbin/pkg config abi`
 
 # FreeBSD package source:
-FREEBSD_PACKAGE_URL="https://pkg.freebsd.org/${ABI}/latest/All/"
+FREEBSD_PACKAGE_URL="https://pkg.freebsd.org/${ABI}/latest/"
 
 # FreeBSD package list:
-FREEBSD_PACKAGE_LIST_URL="https://pkg.freebsd.org/${ABI}/latest/packagesite.txz"
+FREEBSD_PACKAGE_LIST_URL="${FREEBSD_PACKAGE_URL}packagesite.pkg"
 
 # Stop the controller if it's already running...
 # First let's try the rc script if it exists:
@@ -83,24 +85,14 @@ echo -n "Mounting new filesystems..."
 echo " done."
 
 
-#remove mongodb34 - discontinued
-echo "Removing packages discontinued..."
-if [ `pkg info | grep -c mongodb-` -eq 1 ]; then
-        pkg unlock -yq mongodb
-	env ASSUME_ALWAYS_YES=YES /usr/sbin/pkg delete mongodb
-fi
-
-if [ `pkg info | grep -c mongodb34-` -eq 1 ]; then
-        pkg unlock -yq mongodb34 
-	env ASSUME_ALWAYS_YES=YES /usr/sbin/pkg delete mongodb34
-fi
-
-if [ `pkg info | grep -c mongodb36-` -eq 1 ]; then
-        pkg unlock -yq mongodb36
-	env ASSUME_ALWAYS_YES=YES /usr/sbin/pkg delete mongodb36
-fi
+echo "Removing discontinued packages..."
+old_mongos=`pkg info | grep mongodb | grep -v ${CURRENT_MONGODB_VERSION}`
+for old_mongo in "${old_mongos}"; do
+  package=`echo "$old_mongo" | cut -d' ' -f1`
+  pkg unlock -yq ${package}
+  env ASSUME_ALWAYS_YES=YES /usr/sbin/pkg delete ${package}
+done
 echo " done."
-
 
 
 
@@ -111,19 +103,20 @@ echo "Installing required packages..."
 #env ASSUME_ALWAYS_YES=YES /usr/sbin/pkg install mongodb openjdk unzip pcre v8 snappy
 
 fetch ${FREEBSD_PACKAGE_LIST_URL}
-tar vfx packagesite.txz
+tar vfx packagesite.pkg
 
 AddPkg () {
  	pkgname=$1
         pkg unlock -yq $pkgname
  	pkginfo=`grep "\"name\":\"$pkgname\"" packagesite.yaml`
  	pkgvers=`echo $pkginfo | pcregrep -o1 '"version":"(.*?)"' | head -1`
+	pkgurl="${FREEBSD_PACKAGE_URL}`echo $pkginfo | pcregrep -o1 '"path":"(.*?)"' | head -1`"
 
 	# compare version for update/install
  	if [ `pkg info | grep -c $pkgname-$pkgvers` -eq 1 ]; then
 	     echo "Package $pkgname-$pkgvers already installed."
 	else
-	     env ASSUME_ALWAYS_YES=YES /usr/sbin/pkg add -f ${FREEBSD_PACKAGE_URL}${pkgname}-${pkgvers}.txz
+	     env ASSUME_ALWAYS_YES=YES /usr/sbin/pkg add -f "$pkgurl"
 
 	     # if update openjdk8 then force detele snappyjava to reinstall for new version of openjdk
 	     if [ "$pkgname" == "openjdk8" ]; then
@@ -168,7 +161,7 @@ AddPkg snappy
 AddPkg cyrus-sasl
 AddPkg icu
 AddPkg boost-libs
-AddPkg mongodb40
+AddPkg ${CURRENT_MONGODB_VERSION}
 AddPkg unzip
 AddPkg pcre
 
